@@ -214,20 +214,26 @@ def follow_waypts(robot,waypt_list):
     control_hz = 20 
     dt = 1 / control_hz
     for i in range(waypt_list.shape[0]):
+        t_start = time.time()
         waypt = waypt_list[i,:] # get waypoint
         waypt /= 1000 # convert mm to m
         waypt = home + [waypt[0], 0, waypt[1]] # Add planar waypoint to the home position
         curr_joint_values = robot.get_joint_values() # deg
         curr_joint_values_rad = [v * pi / 180 for v in curr_joint_values] # rad
         
-        t0 = time.perf_counter()
+        t_compute = time.time()
         # Use numerical IK to get the joint angles
         commanded_joints = robot.calc_numerical_ik(curr_joint_values_rad,tol=0.002,ilimit=1000)
-        print(f"Time to compute waypoint IK: {time.perf_counter() - t0}")
+        print(f"Time to compute waypoint IK: {time.perf_counter() - t_compute}")
 
         # Pass joint values to the robot to move to the waypoint
         robot.set_joint_values(commanded_joints, duration=dt, radians=True)
-        time.sleep(1)
+        
+        elapsed = time.time() - t_start
+        remaining_time = dt - elapsed
+        if remaining_time > 0:
+            time.sleep(remaining_time)
+
 
 def main():
     """ Main loop that reads gamepad commands and updates the robot accordingly. """
@@ -252,6 +258,8 @@ def main():
                 print("[FATAL] Reader failed:", robot.read_error)
                 break
 
+            follow_waypts(robot,waypts_square)
+
             if robot.gamepad.cmdlist:
                 cmd = robot.gamepad.cmdlist[-1]
 
@@ -261,6 +269,8 @@ def main():
                 if curr_joint_values is None:
                     curr_joint_values = robot.get_joint_values() # deg
                     curr_joint_values_rad = [v * pi / 180 for v in curr_joint_values] # rad
+                
+                
 
                 #curr_joint_values = robot.get_joint_values()
 
