@@ -32,6 +32,16 @@ class KinovaRobot(KinovaRobotTemplate):
 
     def calc_forward_kinematics(self,joint_values: list, radians=True):
         print(f"len joint values: {len(joint_values)}")
+        # dh_table = np.array([
+        #     [0,0,0,pi],
+        #     [joint_values[0],-self.l2-self.l1, 0, 0.5*pi],
+        #     [joint_values[1] - 0.5*pi, 0, self.l3,pi],
+        #     [joint_values[2] - 0.5*pi, 0, 0, 0.5*pi],
+        #     [joint_values[3], -self.l4 - self.l5, 0, -0.5*pi],
+        #     [joint_values[4], 0, 0, 0.5*pi],
+        #     [joint_values[5], -self.l6 - self.l7, 0, pi]
+        # ])
+
         dh_table = np.array([
             [0,0,0,pi],
             [joint_values[0],-self.l2-self.l1, 0, 0.5*pi],
@@ -41,6 +51,8 @@ class KinovaRobot(KinovaRobotTemplate):
             [joint_values[4], 0, 0, 0.5*pi],
             [joint_values[5], -self.l6 - self.l7, 0, pi]
         ])
+
+        
 
         H_ee, H_list = self.dh_to_H(dh_table=dh_table)
 
@@ -126,8 +138,11 @@ class KinovaRobot(KinovaRobotTemplate):
             ee_pose_diff = np.array([ee.x - ee_pose.x, ee.y - ee_pose.y, ee.z - ee_pose.z, ee.rotx - ee_pose.rotx, ee.roty - ee_pose.roty, ee.rotz - ee_pose.rotz])
             #print(f"Error for sol {soln}: {np.linalg.norm(ee_pose_diff)}")
             #print(f"Returned angles: {[theta1,theta2,theta3,theta4,theta5]}\n")
-            sols.append([theta1,theta2,theta3,theta4,theta5,theta6])
-            errors.append(np.linalg.norm(ee_pose_diff))
+            if ut.check_joint_limits([theta1,theta2,theta3,theta4,theta5,theta6],self.joint_limits):
+                sols.append([theta1,theta2,theta3,theta4,theta5,theta6])
+                errors.append(np.linalg.norm(ee_pose_diff))
+            else:
+                print(f"\n\nREJECTED SOL FOR BEING INVALID\n\n")
         
         print(f"Error list: {errors}")
         print(f"Solutions: {sols}")

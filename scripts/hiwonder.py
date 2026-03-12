@@ -40,6 +40,14 @@ class FiveDOFRobot(FiveDOFRobotTemplate):
             [joint_values[4],self.l4 + self.l5,0,0],
         ])
 
+        # dh_table = np.array([
+        #     [joint_values[0],self.l1, 0, 0.5 * pi],
+        #     [joint_values[1] + 0.5*pi,0,self.l2,pi],
+        #     [joint_values[2],0,self.l3,pi],
+        #     [joint_values[3] - 0.5*pi,0,0,-0.5*pi],
+        #     [joint_values[4],self.l4 + self.l5,0,0],
+        # ])
+
         H_ee, H_list = self.dh_to_H(dh_table=dh_table)
 
         ee = ut.EndEffector()
@@ -143,9 +151,9 @@ class FiveDOFRobot(FiveDOFRobotTemplate):
 
             # Get the orientation of the 3rd frame (wrist) w.r.t. base frame
             dh_table_partial = np.array([
-                [theta1,self.l1,0,-pi/2],
-                [theta2 - pi/2,0, self.l2, pi],
-                [theta3, 0, self.l3,pi],
+                [theta1,self.l1, 0, -0.5 * pi],
+                [theta2 - 0.5*pi,0,self.l2,pi],
+                [theta3,0,self.l3,pi]
             ])
 
             H_0_3,_ = self.dh_to_H(dh_table_partial)
@@ -158,17 +166,20 @@ class FiveDOFRobot(FiveDOFRobotTemplate):
             theta5 = ut.wraptopi(np.atan2(R_3_ee[2,0],R_3_ee[2,1]))
 
             ee_pose,_ = self.calc_forward_kinematics([theta1,theta2,theta3,theta4,theta5])
-            ee_pose_diff = np.array([ee.x - ee_pose.x, ee.y - ee_pose.y, ee.z - ee_pose.z, ee.rotx - ee_pose.rotx, ee.roty - ee_pose.roty, ee.rotz - ee_pose.rotz])
+            ee_pose_diff = np.array([ee.x - ee_pose.x, ee.y - ee_pose.y, ee.z - ee_pose.z])
             #print(f"Error for sol {soln}: {np.linalg.norm(ee_pose_diff)}")
             #print(f"Returned angles: {[theta1,theta2,theta3,theta4,theta5]}\n")
-            sols.append([theta1,theta2,theta3,theta4,theta5])
-            errors.append(np.linalg.norm(ee_pose_diff))
+            if ut.check_joint_limits([theta1,theta2,theta3,theta4,theta5],self.joint_limits):
+                sols.append([theta1,theta2,theta3,theta4,theta5])
+                errors.append(np.linalg.norm(ee_pose_diff))
+            else:
+                print(f"\n\nREJECTED INVALID SOL\n\n")
         
         print(f"Error list: {errors}")
         print(f"Solutions: {sols}")
         sols_ordered = [s for s, _ in sorted(zip(sols, errors), key=lambda x: x[1])]
 
-        return sols_ordered[soln]
+        return sols_ordered[0]
 
     def calc_numerical_ik(self, ee, joint_values, tol=0.002, ilimit=1000):
         # Numerical IK
