@@ -48,13 +48,13 @@ class FiveDOFRobot(FiveDOFRobotTemplate):
         
         return H_ee, H_list
 
-    def calc_forward_kinematics(self,joint_values: list, radians=True):
+    def calc_forward_kinematics(self, joint_values: list, radians=True):
         dh_table = np.array([
-            [self.joint_values[0],self.l1, 0, 0.5 * pi],
-            [self.joint_values[1] - 0.5*pi,0,-self.l2,pi],
-            [self.joint_values[2],0,-self.l3,pi],
-            [self.joint_values[3] + 0.5*pi,0,0,-0.5*pi],
-            [self.joint_values[4],self.l4 + self.l5,0,0],
+            [joint_values[0],          self.l1,            0,        0.5 * pi],
+            [joint_values[1] - 0.5*pi, 0,                 -self.l2,  pi      ],
+            [joint_values[2],          0,                 -self.l3,  pi      ],
+            [joint_values[3] + 0.5*pi, 0,                  0,       -0.5*pi  ],
+            [joint_values[4],          self.l4 + self.l5,  0,        0       ],
         ])
 
         H_ee, H_list = self.dh_to_H(dh_table=dh_table)
@@ -76,13 +76,6 @@ class FiveDOFRobot(FiveDOFRobotTemplate):
         """
         new_joint_values = joint_values.copy()
 
-        # move robot slightly out of zeros singularity
-        #if all(theta == 0.0 for theta in new_joint_values):
-        #    new_joint_values = [theta + np.random.rand()*0.02 for theta in new_joint_values]
-        
-        # Calculate joint velocities using the inverse Jacobian
-        # For this, we don't care about rotation, so we want only a 3 element velocity vector
-        #new_joint_values_rad = [val * pi / 180 for val in new_joint_values]
         J = self.calc_jacobians(new_joint_values)
         Jv = J[0:3,:] # Only includes linear velocity, shape (3,5)
 
@@ -92,20 +85,13 @@ class FiveDOFRobot(FiveDOFRobotTemplate):
         JJt = JJt + (lam**2 * np.eye(3))
         J_inv_damped = Jv.T @ self.inv_jacobian(JJt)
         joint_vel = J_inv_damped @ vel
-        #joint_vel = joint_vel_rad * 180 / pi 
-        #joint_vel = joint_vel_rad
 
-        #print(f"joint vel shape: {joint_vel.shape}, J_inv_damped shape: {J_inv_damped.shape}, thingy shape: {[limit[0] for limit in self.joint_vel_limits]}")
-        #print(f"joint vel limits: {self.joint_vel_limits}")
-        #print(f"j v limits: {self.joint_vel_limits}")
- 
         joint_vel = np.clip(joint_vel, 
                             [limit[0] for limit in self.joint_vel_limits], 
                             [limit[1] for limit in self.joint_vel_limits]
                         )
 
         print(f"Commanded linear vel: {vel}, resulting joint vel (rad): {joint_vel}")
-        #joint_vel = [v * 180 / pi for v in joint_vel]
 
         # Update the joint angles based on the velocity
         for i in range(self.num_dof):
@@ -121,7 +107,7 @@ class FiveDOFRobot(FiveDOFRobotTemplate):
         print(f"Final joint values sent: {new_joint_values}")
         return new_joint_values
     
-    def calc_numerical_ik(self, ee, joint_values, tol=0.002, ilimit=1000):
+    def calc_numerical_ik(self, ee, joint_values, tol=0.02, ilimit=1000):
         # Numerical IK
         n = ilimit
         eps = tol
@@ -131,15 +117,14 @@ class FiveDOFRobot(FiveDOFRobotTemplate):
         for j in range(attempts):
             if j == 0:
                 # Start with our current joint values
-                curr_joint_vals = joint_values
+                curr_joint_vals = np.array(joint_values[:5])
             else:
                 # After that, do a random guess
-                curr_joint_vals = ut.sample_valid_joints(self)
+                curr_joint_vals = np.array(ut.sample_valid_joints(self))[:5]
+
             for i in range(n):
-                print(f"Curr joint vals: {curr_joint_vals}")
                 p_ee, _ = self.calc_forward_kinematics(curr_joint_vals)
                 err = p_des - np.array([p_ee.x, p_ee.y, p_ee.z]) # error vector (position)
-                print(f"Error {np.linalg.norm(err)}")
 
                 if np.linalg.norm(err) < eps:
                     print(f"Found solution at iter {i} with error {np.linalg.norm(err)}")
@@ -153,13 +138,9 @@ class FiveDOFRobot(FiveDOFRobotTemplate):
                 JJt = J @ J.T
                 JJt = JJt + (lam**2 * np.eye(3))
                 J_inv = J.T @ np.linalg.pinv(JJt)
-                #J_inv = np.linalg.pinv(J)
-                #print(f"jinv shape {J_inv.shape}, err shape {err.shape}")
                 step = J_inv @ err
-                print(f"err {err}, step {step}")
 
                 curr_joint_vals = curr_joint_vals + step
-                #curr_joint_vals = [ut.wraptopi(val) for val in curr_joint_vals]
                 if not ut.check_joint_limits(curr_joint_vals, self.joint_limits):
                     break
                     
@@ -190,14 +171,11 @@ class FiveDOFRobot(FiveDOFRobotTemplate):
             Jv = np.cross(z_joint,pos_joint_to_ee) # cross product is jacobian
             Jw = z_joint
 
-            #print(f"Jv: {Jv}, Jw: {Jw}")
-
             J[0:3,i] = Jv
             J[3:6,i] = Jw
 
             H_0_current = H_0_current @ H
         
-        #print(f"\nMy Jacobian was: {J}\n")
         return J
     
     def inv_jacobian(self,J):
@@ -206,33 +184,41 @@ class FiveDOFRobot(FiveDOFRobotTemplate):
         """
         return np.linalg.pinv(J)
 
-def follow_waypts(robot,waypt_list):
+def follow_waypts(model, robot, waypt_list):
     """
-    Use numerical IK to command the Hiwonder to follow a given path of waypoints
+    Use numerical IK to command the Hiwonder to follow a given path of waypoints.
+    First pre-computes all IK solutions, then executes them sequentially.
     """
-    home = np.array([0,0,0])
-    control_hz = 20 
-    dt = 1 / control_hz
-    for i in range(waypt_list.shape[0]):
-        t_start = time.time()
-        waypt = waypt_list[i,:] # get waypoint
-        waypt /= 1000 # convert mm to m
-        waypt = home + [waypt[0], 0, waypt[1]] # Add planar waypoint to the home position
-        curr_joint_values = robot.get_joint_values() # deg
-        curr_joint_values_rad = [v * pi / 180 for v in curr_joint_values] # rad
-        
-        t_compute = time.time()
-        # Use numerical IK to get the joint angles
-        commanded_joints = robot.calc_numerical_ik(curr_joint_values_rad,tol=0.002,ilimit=1000)
-        print(f"Time to compute waypoint IK: {time.perf_counter() - t_compute}")
+    ee, _ = model.calc_forward_kinematics(robot.get_joint_values())
+    home = np.array([0.2, 0, 0.3])
+    print(home)
 
-        # Pass joint values to the robot to move to the waypoint
-        robot.set_joint_values(commanded_joints, duration=dt, radians=True)
-        
-        elapsed = time.time() - t_start
-        remaining_time = dt - elapsed
-        if remaining_time > 0:
-            time.sleep(remaining_time)
+    curr_joint_values_full = robot.get_joint_values()  # deg
+    curr_joint_values_rad_full = [v * pi / 180 for v in curr_joint_values_full]  # rad
+    prev_joints_5dof = curr_joint_values_rad_full[:5]
+
+    solutions = []
+    for i in range(len(waypt_list)):
+        waypt = waypt_list[i, :] / 1000  # mm to m
+        waypt = home + waypt
+        print(waypt)
+
+        ee_target = ut.EndEffector()
+        ee_target.x, ee_target.y, ee_target.z = waypt[0], waypt[1], waypt[2]
+
+        t_compute = time.perf_counter()
+        commanded_joints = model.calc_numerical_ik(ee_target, prev_joints_5dof, tol=0.002, ilimit=1000)
+
+        if commanded_joints is None:
+            solutions.append(None)
+        else:
+            commanded_joints_full = list(commanded_joints) + [curr_joint_values_rad_full[5]]
+            solutions.append(commanded_joints_full)
+            prev_joints_5dof = commanded_joints  # warm-start next solve
+
+    for i, joints in enumerate(solutions):
+        robot.set_joint_values(joints, duration=2, radians=True)
+        time.sleep(2)
 
 
 def main():
@@ -248,8 +234,9 @@ def main():
         control_hz = 20 
         dt = 1 / control_hz
         t0 = time.time()
-        waypts_square = np.array([[-60,-60],[-60,60],[60,60],[60,-60],[-60,-60]])
-        waypts_star = np.array([[-38,-60],[0,60],[38,-60],[-60,13],[60,13],[-38,-60]])
+        waypts_square = np.array([[0,-60,-60],[0,-60,60],[0,60,60],[0,60,-60],[0,-60,-60]])
+        waypts_star = np.array([[0,-38,-60],[0,0,60],[0,38,-60],[0,-60,13],[0,60,13],[0,-38,-60]])
+        waypts_IN = np.array([[0,60,60],[0,60,-60],[0,0,-60],[0,0,60],[0,-60,-60],[0,-60,60]])
 
         while True:
             t_start = time.time()
@@ -258,39 +245,59 @@ def main():
                 print("[FATAL] Reader failed:", robot.read_error)
                 break
 
-            follow_waypts(robot,waypts_square)
+            # joints = robot.get_joint_values()[:5]
 
-            if robot.gamepad.cmdlist:
-                cmd = robot.gamepad.cmdlist[-1]
+            # ee_target = ut.EndEffector()
+            # ee_target.x, ee_target.y, ee_target.z = 0.2, 0, 0.2
 
-                if cmd.arm_home:
-                    robot.move_to_home_position()
+            # commanded_joints = model.calc_numerical_ik(ee_target, joints, tol=0.002, ilimit=1000)
+            # robot.set_joint_values(list(commanded_joints) + [0], duration=4, radians=True)
+
+            # time.sleep(4)
+
+            # Square
+            follow_waypts(model,robot,waypts_square)
+            time.sleep(2)
+
+            # Star
+            follow_waypts(model,robot,waypts_star)
+            time.sleep(2)
+
+            # IN
+            follow_waypts(model,robot,waypts_IN)
+            time.sleep(2)
+
+            # if robot.gamepad.cmdlist:
+            #     cmd = robot.gamepad.cmdlist[-1]
+
+            #     if cmd.arm_home:
+            #         robot.move_to_home_position()
                 
-                if curr_joint_values is None:
-                    curr_joint_values = robot.get_joint_values() # deg
-                    curr_joint_values_rad = [v * pi / 180 for v in curr_joint_values] # rad
+            #     if curr_joint_values is None:
+            #         curr_joint_values = robot.get_joint_values() # deg
+            #         curr_joint_values_rad = [v * pi / 180 for v in curr_joint_values] # rad
                 
                 
 
-                #curr_joint_values = robot.get_joint_values()
+            #     #curr_joint_values = robot.get_joint_values()
 
-                ### Convert to radians 
-                #curr_joint_values = [v * pi / 180 for v in curr_joint_values]
+            #     ### Convert to radians 
+            #     #curr_joint_values = [v * pi / 180 for v in curr_joint_values]
 
-                vel = [cmd.arm_vx, cmd.arm_vy, cmd.arm_vz]
-                curr_joint_values_rad = model.calc_velocity_kinematics(curr_joint_values_rad, vel)
-                curr_joint_values = [v * 180 / pi for v in curr_joint_values_rad]
-                ### Convert to degrees
-                #new_joint_values = [v * 180 / pi for v in new_joint_values]
+            #     vel = [cmd.arm_vx, cmd.arm_vy, cmd.arm_vz]
+            #     curr_joint_values_rad = model.calc_velocity_kinematics(curr_joint_values_rad, vel)
+            #     curr_joint_values = [v * 180 / pi for v in curr_joint_values_rad]
+            #     ### Convert to degrees
+            #     #new_joint_values = [v * 180 / pi for v in new_joint_values]
 
-                # set new joint angles
-                print(f"Final values sent (deg): {curr_joint_values}")
-                robot.set_joint_values(curr_joint_values, duration=dt, radians=False)
+            #     # set new joint angles
+            #     print(f"Final values sent (deg): {curr_joint_values}")
+            #     robot.set_joint_values(curr_joint_values, duration=dt, radians=False)
 
-            elapsed = time.time() - t_start
-            remaining_time = dt - elapsed
-            if remaining_time > 0:
-                time.sleep(remaining_time)
+            # elapsed = time.time() - t_start
+            # remaining_time = dt - elapsed
+            # if remaining_time > 0:
+            #     time.sleep(remaining_time)
 
             
     except KeyboardInterrupt:
@@ -306,5 +313,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
