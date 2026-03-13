@@ -94,9 +94,6 @@ class KinovaRobot(KinovaRobotTemplate):
             L = np.linalg.norm(p_wrist_transformed)
             X = np.sqrt(p_wrist_transformed[0]**2 + p_wrist_transformed[1]**2)
             cosB = (-L**2 + self.l3**2 + (self.l4+self.l5)**2)/(2*self.l3*(self.l4+self.l5))
-            #cosB = (L**2 - self.l3**2 - (self.l4+self.l5)**2)/(2*self.l3*(self.l4+self.l5))
-            
-            cosB = np.clip(cosB, -1.0, 1.0)
             beta = np.acos(cosB)
 
             if opt1:
@@ -104,15 +101,20 @@ class KinovaRobot(KinovaRobotTemplate):
             else:
                 theta3 = beta - pi
             theta3 = ut.wraptopi(theta3)
-            
-            #print(f"p wrist transformed: {p_wrist_transformed}")
-        
-            alpha = np.atan2((self.l4 + self.l5) * np.sin(theta3),self.l3 + (self.l4 + self.l5) * np.cos(theta3))
+                    
             gam = np.atan2(p_wrist_transformed[2],X)
-            theta2 = ut.wraptopi(-(gam - alpha - pi/2))
-            
-            #print(f"Thetas 1,2,3: {theta1}, {theta2}, {theta3}")
+            perpendicular = (self.l4 + self.l5) * sin(theta3)
+            alpha = np.asin(perpendicular / L)
 
+            # Different theta2 depending on theta1 direction 
+            if opt2:
+                theta2 = (-(gam - alpha - np.pi / 2))
+
+            if not opt2:
+                theta2 = gam + alpha - np.pi / 2
+
+            theta2 = ut.wraptopi(theta2)
+            
             # Get the orientation of the 3rd frame (wrist) w.r.t. base frame
             dh_table_partial = np.array([
                 [0,0,0,pi],
@@ -127,12 +129,14 @@ class KinovaRobot(KinovaRobotTemplate):
             # We want rotation of EE w.r.t. frame 3 (before wrist)
             R_3_ee = R_0_3.T @ R_0_ee
             
-            if opt3:
-                theta5 = ut.wraptopi(np.acos(-R_3_ee[2,2]))
+            # wrist has two solutions
+            # alt solution: theta5 bends the other way, other angles shift by pi
+            if opt3: 
+                theta5 = ut.wraptopi(-np.acos(-R_3_ee[2,2]))
                 theta4 = ut.wraptopi(np.atan2(R_3_ee[1,2],R_3_ee[0,2]))
                 theta6 = ut.wraptopi(np.atan2(R_3_ee[2,1],R_3_ee[2,0]))
             else:
-                theta5 = ut.wraptopi(-np.acos(-R_3_ee[2,2]))
+                theta5 = ut.wraptopi(-np.acos(R_3_ee[2,2]))
                 theta4 = ut.wraptopi(np.atan2(-R_3_ee[1,2],-R_3_ee[0,2]))
                 theta6 = ut.wraptopi(np.atan2(-R_3_ee[2,1],-R_3_ee[2,0]))
 

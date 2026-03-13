@@ -112,7 +112,6 @@ class FiveDOFRobot(FiveDOFRobotTemplate):
             p_ee = np.array([ee.x,ee.y,ee.z])
             z_ee = R_0_ee @ np.array([0,0,1]) # Z axis of end effector
             p_wrist = p_ee - (self.l4 + self.l5)*z_ee # Bend in wrist position
-            #print(f"p_ee: {p_ee}, p_wrist: {p_wrist}")
 
             # The joints before the wrist consist only of the two DOF arm on a pivot
             if opt2:
@@ -124,27 +123,30 @@ class FiveDOFRobot(FiveDOFRobotTemplate):
             # Shift p_wrist to correspond to translation from joint 1
             p_wrist_transformed = p_wrist - np.array([0,0,self.l1])
             L = np.linalg.norm(p_wrist_transformed)
+
             X = np.sqrt(p_wrist_transformed[0]**2 + p_wrist_transformed[1]**2)
             cosB = (-L**2 + self.l2**2 + self.l3**2)/(2*self.l2*self.l3)
-            
-            cosB = np.clip(cosB, -1.0, 1.0)
             beta = np.acos(cosB)
 
+            # Two solutions: arm bends up or down
             if opt1:
                 theta3 = pi - beta
             else:
                 theta3 = beta - pi
             theta3 = ut.wraptopi(theta3)
             
-            #print(f"p wrist transformed: {p_wrist_transformed}")
-        
-            alpha = np.atan2(self.l3 * np.sin(theta3),self.l2 + self.l3 * np.cos(theta3))
             gam = np.atan2(p_wrist_transformed[2],X)
-            #theta2 = ut.wraptopi(-(gam - alpha - pi/2))
-            theta2 = ut.wraptopi(pi/2 - gam + alpha)
-            
-            #print(f"Thetas 1,2,3: {theta1}, {theta2}, {theta3}")
+            perpendicular = self.l3 * sin(theta3)
+            alpha = np.arcsin(perpendicular / L)
 
+            # Different value for theta2 if theta1 is the alternate orientation
+            if opt2:
+                theta2 = (-(gam - alpha - np.pi / 2))
+            if not opt2:
+                theta2 = gam + alpha - np.pi / 2
+
+            theta2 = ut.wraptopi(theta2)
+            
             # Get the orientation of the 3rd frame (wrist) w.r.t. base frame
             dh_table_partial = np.array([
                 [theta1,self.l1, 0, -0.5 * pi],
