@@ -1,5 +1,6 @@
 from math import *
 import numpy as np
+import time
 from funrobo_kinematics.core.visualizer import Visualizer, RobotSim
 import funrobo_kinematics.core.utils as ut
 from funrobo_kinematics.core.arm_models import FiveDOFRobotTemplate
@@ -32,6 +33,7 @@ class FiveDOFRobot(FiveDOFRobotTemplate):
         return H_ee, H_list
 
     def calc_forward_kinematics(self,joint_values: list, radians=True):
+        
         dh_table = np.array([
             [joint_values[0],self.l1, 0, -0.5 * pi],
             [joint_values[1] - 0.5*pi,0,self.l2,pi],
@@ -39,14 +41,6 @@ class FiveDOFRobot(FiveDOFRobotTemplate):
             [joint_values[3] + 0.5*pi,0,0,0.5*pi],
             [joint_values[4],self.l4 + self.l5,0,0],
         ])
-
-        # dh_table = np.array([
-        #     [joint_values[0],self.l1, 0, 0.5 * pi],
-        #     [joint_values[1] + 0.5*pi,0,self.l2,pi],
-        #     [joint_values[2],0,self.l3,pi],
-        #     [joint_values[3] - 0.5*pi,0,0,-0.5*pi],
-        #     [joint_values[4],self.l4 + self.l5,0,0],
-        # ])
 
         H_ee, H_list = self.dh_to_H(dh_table=dh_table)
 
@@ -107,6 +101,7 @@ class FiveDOFRobot(FiveDOFRobotTemplate):
         Calculates analytical inverse kinematics for the joint
         """
         # We have 4 solutions
+        t0 = time.time()
         sols = []
         errors = []
         for solution in range(4):
@@ -145,7 +140,8 @@ class FiveDOFRobot(FiveDOFRobotTemplate):
         
             alpha = np.atan2(self.l3 * np.sin(theta3),self.l2 + self.l3 * np.cos(theta3))
             gam = np.atan2(p_wrist_transformed[2],X)
-            theta2 = ut.wraptopi(-(gam - alpha - pi/2))
+            #theta2 = ut.wraptopi(-(gam - alpha - pi/2))
+            theta2 = ut.wraptopi(pi/2 - gam + alpha)
             
             #print(f"Thetas 1,2,3: {theta1}, {theta2}, {theta3}")
 
@@ -169,23 +165,27 @@ class FiveDOFRobot(FiveDOFRobotTemplate):
             ee_pose_diff = np.array([ee.x - ee_pose.x, ee.y - ee_pose.y, ee.z - ee_pose.z])
             #print(f"Error for sol {soln}: {np.linalg.norm(ee_pose_diff)}")
             #print(f"Returned angles: {[theta1,theta2,theta3,theta4,theta5]}\n")
-            if ut.check_joint_limits([theta1,theta2,theta3,theta4,theta5],self.joint_limits):
+            if ut.check_valid_ik_soln([theta1,theta2,theta3,theta4,theta5],ee,self,tol=0.002):
                 sols.append([theta1,theta2,theta3,theta4,theta5])
                 errors.append(np.linalg.norm(ee_pose_diff))
             else:
-                print(f"\n\nREJECTED INVALID SOL\n\n")
+                print(f"\n\nREJECTED INVALID SOL")
+                print([theta1,theta2,theta3,theta4,theta5])
+                print(f"error: {np.linalg.norm(ee_pose_diff)}\n\n")
         
         print(f"Error list: {errors}")
         print(f"Solutions: {sols}")
+        print(f"Elapsed time: {time.time() - t0}")
         sols_ordered = [s for s, _ in sorted(zip(sols, errors), key=lambda x: x[1])]
 
-        return sols_ordered[0]
+        return sols_ordered[soln]
 
     def calc_numerical_ik(self, ee, joint_values, tol=0.002, ilimit=1000):
         # Numerical IK
         n = ilimit
         eps = tol
         attempts = 1000
+        t0 = time.time()
 
         p_des = np.array([ee.x,ee.y,ee.z])
         for j in range(attempts):
@@ -203,6 +203,7 @@ class FiveDOFRobot(FiveDOFRobotTemplate):
 
                 if np.linalg.norm(err) < eps:
                     print(f"Found solution at iter {i} with error {np.linalg.norm(err)}")
+                    print(f"Elapsed time: {time.time() - t0}")
                     return curr_joint_vals
                 
                 J = self.calc_jacobians(curr_joint_vals)
@@ -224,6 +225,7 @@ class FiveDOFRobot(FiveDOFRobotTemplate):
                     break
                     
         print("Failed to converge")
+        print(f"Elapsed time: {time.time() - t0}")
         return None
 
     def calc_jacobians(self,joint_values):

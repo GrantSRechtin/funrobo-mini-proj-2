@@ -31,7 +31,7 @@ class KinovaRobot(KinovaRobotTemplate):
         return H_ee, H_list
 
     def calc_forward_kinematics(self,joint_values: list, radians=True):
-        print(f"len joint values: {len(joint_values)}")
+        #print(f"len joint values: {len(joint_values)}")
         # dh_table = np.array([
         #     [0,0,0,pi],
         #     [joint_values[0],-self.l2-self.l1, 0, 0.5*pi],
@@ -71,7 +71,8 @@ class KinovaRobot(KinovaRobotTemplate):
         # We have 8 solutions
         sols = []
         errors = []
-        for solution in range(4):
+        for solution in range(8):
+            opt3 = (solution >> 2) & 1
             opt1 = (solution >> 1) & 1
             opt2 = solution & 1
 
@@ -83,9 +84,9 @@ class KinovaRobot(KinovaRobotTemplate):
 
             # The joints before the wrist consist only of the two DOF arm on a pivot
             if opt2:
-                theta1 = np.atan2(p_wrist[1],p_wrist[0])
+                theta1 = np.atan2(-p_wrist[1],p_wrist[0])
             else:
-                theta1 = np.atan2(p_wrist[1],p_wrist[0]) + pi
+                theta1 = np.atan2(-p_wrist[1],p_wrist[0]) + pi
             theta1 = ut.wraptopi(theta1)
 
             # Shift p_wrist to correspond to translation from joint 1
@@ -93,6 +94,7 @@ class KinovaRobot(KinovaRobotTemplate):
             L = np.linalg.norm(p_wrist_transformed)
             X = np.sqrt(p_wrist_transformed[0]**2 + p_wrist_transformed[1]**2)
             cosB = (-L**2 + self.l3**2 + (self.l4+self.l5)**2)/(2*self.l3*(self.l4+self.l5))
+            #cosB = (L**2 - self.l3**2 - (self.l4+self.l5)**2)/(2*self.l3*(self.l4+self.l5))
             
             cosB = np.clip(cosB, -1.0, 1.0)
             beta = np.acos(cosB)
@@ -125,7 +127,7 @@ class KinovaRobot(KinovaRobotTemplate):
             # We want rotation of EE w.r.t. frame 3 (before wrist)
             R_3_ee = R_0_3.T @ R_0_ee
             
-            if opt1:
+            if opt3:
                 theta5 = ut.wraptopi(np.acos(-R_3_ee[2,2]))
                 theta4 = ut.wraptopi(np.atan2(R_3_ee[1,2],R_3_ee[0,2]))
                 theta6 = ut.wraptopi(np.atan2(R_3_ee[2,1],R_3_ee[2,0]))
@@ -135,7 +137,7 @@ class KinovaRobot(KinovaRobotTemplate):
                 theta6 = ut.wraptopi(np.atan2(-R_3_ee[2,1],-R_3_ee[2,0]))
 
             ee_pose,_ = self.calc_forward_kinematics([theta1,theta2,theta3,theta4,theta5,theta6])
-            ee_pose_diff = np.array([ee.x - ee_pose.x, ee.y - ee_pose.y, ee.z - ee_pose.z, ee.rotx - ee_pose.rotx, ee.roty - ee_pose.roty, ee.rotz - ee_pose.rotz])
+            ee_pose_diff = np.array([ee.x - ee_pose.x, ee.y - ee_pose.y, ee.z - ee_pose.z])
             #print(f"Error for sol {soln}: {np.linalg.norm(ee_pose_diff)}")
             #print(f"Returned angles: {[theta1,theta2,theta3,theta4,theta5]}\n")
             if ut.check_joint_limits([theta1,theta2,theta3,theta4,theta5,theta6],self.joint_limits):
